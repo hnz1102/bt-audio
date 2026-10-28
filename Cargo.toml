@@ -1,0 +1,30 @@
+[package]
+name = "bt-audio"
+version = "0.1.0"
+edition = "2021"
+resolver = "2"
+rust-version = "1.77"
+license = "MIT"
+
+[profile.release]
+opt-level = "s"
+
+[profile.dev]
+debug = true
+opt-level = "z"
+
+[dependencies]
+anyhow = "1"
+log = "0.4"
+esp-idf-svc = { version = "0.51", features = ["binstart"] }
+
+[build-dependencies]
+embuild = "0.33"
+
+[[package.metadata.esp-idf-sys.extra_components]]
+component_dirs = ["components"]
+bindings_header = "components/bt_shim/bt_shim.h"
+bindings_module = "bt_shim"
+
+[package.metadata.espflash]
+partition_table = "partitions.csv"
