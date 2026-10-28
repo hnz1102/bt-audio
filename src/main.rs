@@ -1,6 +1,6 @@
 
 //! A2DP sink for the original ESP32: receives audio from a phone/PC over
-//! Bluetooth Classic and plays it out through an I2S DAC (e.g. PCM5102A).
+//! Bluetooth Classic and plays it out through an I2S DAC/amplifier (MAX98357A).
 //!
 //! BT data callback -> bounded channel -> I2S writer thread, so a slow I2S
 //! write never stalls the Bluetooth stack.
@@ -34,6 +34,10 @@ const PIN_BCK: i32 = 26;
 const PIN_WS: i32 = 25;
 const PIN_DOUT: i32 = 22;
 
+// MAX98357A SD pin, with an external pull-up (about 0.45 V at the pin: L+R mix).
+// Driven low to shut the amplifier down, released (high impedance) to play.
+const PIN_SD: i32 = 13;
+
 enum Msg {
     Pcm(Vec<u8>),
     Rate(u32),
@@ -48,6 +52,7 @@ fn main() -> Result<()> {
     // Bluetooth stores pairing keys in NVS.
     let _nvs = EspDefaultNvsPartition::take()?;
 
+    set_amp_mute(true)?;
     esp!(unsafe { bt_shim_i2s_start(DEFAULT_SAMPLE_RATE, PIN_BCK, PIN_WS, PIN_DOUT) })?;
 
     let (tx, rx) = sync_channel::<Msg>(QUEUE_DEPTH);
@@ -93,6 +98,21 @@ fn main() -> Result<()> {
 
     info!("A2DP sink started as \"{DEVICE_NAME}\"");
     Ok(())
+}
+
+/// Mutes the amplifier by pulling SD low, or releases SD so the external
+/// pull-up selects the (L+R)/2 mix. The internal pulls stay off: they would
+/// shift the voltage set by the external divider.
+fn set_amp_mute(mute: bool) -> Result<(), EspError> {
+    unsafe {
+        esp!(gpio_set_pull_mode(PIN_SD, gpio_pull_mode_t_GPIO_FLOATING))?;
+        if mute {
+            esp!(gpio_set_level(PIN_SD, 0))?;
+            esp!(gpio_set_direction(PIN_SD, gpio_mode_t_GPIO_MODE_OUTPUT))
+        } else {
+            esp!(gpio_set_direction(PIN_SD, gpio_mode_t_GPIO_MODE_INPUT))
+        }
+    }
 }
 
 /// Scales interleaved little-endian 16-bit samples by `GAIN_Q8`, saturating.
@@ -151,6 +171,7 @@ unsafe extern "C" fn a2d_cb(event: esp_a2d_cb_event_t, param: *mut esp_a2d_cb_pa
                 );
             } else if state == esp_a2d_connection_state_t_ESP_A2D_CONNECTION_STATE_DISCONNECTED {
                 info!("disconnected");
+                let _ = set_amp_mute(true);
                 esp_bt_gap_set_scan_mode(
                     esp_bt_connection_mode_t_ESP_BT_CONNECTABLE,
                     esp_bt_discovery_mode_t_ESP_BT_GENERAL_DISCOVERABLE,
@@ -158,7 +179,11 @@ unsafe extern "C" fn a2d_cb(event: esp_a2d_cb_event_t, param: *mut esp_a2d_cb_pa
             }
         }
         esp_a2d_cb_event_t_ESP_A2D_AUDIO_STATE_EVT => {
+            let started = param.audio_stat.state == esp_a2d_audio_state_t_ESP_A2D_AUDIO_STATE_STARTED;
             info!("audio state {}", param.audio_stat.state);
+            if let Err(e) = set_amp_mute(!started) {
+                warn!("amp mute failed: {e}");
+            }
         }
         esp_a2d_cb_event_t_ESP_A2D_AUDIO_CFG_EVT => {
             let mcc = &param.audio_cfg.mcc;
