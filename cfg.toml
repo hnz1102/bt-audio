@@ -1,0 +1,36 @@
+# Build-time defaults for the settings. A value stored in NVS (saved from the
+# web UI) takes precedence; "Factory reset" in the web UI returns to these.
+# The section name must be the crate name. Keys left out use the built-in
+# defaults. The values are compiled into the firmware image.
+[bt-audio]
+wps_enable     = "true"     # "true": use WPS PBC on next boot when SSID is empty
+wifi_ssid      = ""         # your-ssid
+wifi_psk       = ""         # your-password
+ip_mode        = "dhcp"           # "dhcp" or "static"
+ip_address     = "192.168.0.200"
+subnet_mask    = "255.255.255.0"
+gateway        = "192.168.0.1"
+dns            = "1.1.1.1"
+
+syslog_server    = "192.168.0.140:514"
+syslog_enable    = "true"
+syslog_host_name = "btaudio"   # also the DHCP host name
+syslog_app_name  = "bt-audio"
+
+web_user     = "admin"
+web_password = "btpass"
+
+ntp_server1 = "time.aws.com"
+ntp_server2 = "time.google.com"
+ntp_server3 = "time.cloudflare.com"
+ntp_server4 = "ntp.nict.jp"
+timezone    = "JST-9"     # POSIX TZ, e.g. "UTC0", "CET-1CEST,M3.5.0,M10.5.0/3"
+
+bt_name      = "ESP32-Speaker"   # Bluetooth name
+gain_q8      = "256"             # software gain, 256 = 1.0x (0 dB)
+vol_range_db = "60"              # volume knob range below 0 dB (6-100)
+pd_max_mv    = "24000"           # highest USB PD voltage to request (5000-24000)
+subsonic_hz  = "30"              # woofer subsonic high-pass in Hz (10-100, 0 = off)
+crossover_hz = "150"             # main / woofer crossover in Hz (50-300)
+bass_eq_hz   = "60"              # woofer bass EQ centre in Hz (30-150)
+bass_eq_db   = "6"               # woofer bass EQ boost in dB (0-12, 0 = off)
