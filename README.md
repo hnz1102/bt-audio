@@ -21,6 +21,14 @@ Bluetooth (A2DP/SBC) -> Bluedroid decoder -> bounded channel -> I2S writer threa
 - The ESP32 advertises itself as `ESP32-Speaker` and accepts pairing
   automatically (SSP numeric comparison, with a legacy PIN of `1234` as
   fallback).
+- Several devices can be paired; Bluedroid keeps the bonds in NVS. A new
+  device can pair only while the speaker is discoverable: the first 3 min
+  after boot, 3 min after "Pairing mode" in the web UI, and always while no
+  device is paired. Paired devices can connect whenever no other device is
+  connected.
+- At boot the speaker connects to the paired device that connected last; if
+  that one is not reachable it tries the next most recent, and so on (up to
+  8 devices). The order and the device names are kept in NVS (`src/bt.rs`).
 - The Bluedroid stack decodes SBC and hands 16-bit stereo PCM to a callback
   running on the Bluetooth task. The callback copies each packet into a
   bounded queue (4 packets) and drops it if the queue is full or the heap is
@@ -221,8 +229,14 @@ current, free heap, firmware version) and edits:
 | Audio | software gain, crossover frequency, woofer subsonic high-pass and bass EQ (sliders), volume knob range, Bluetooth name, USB PD maximum voltage | sliders while moving (`/api/live`, not stored until Save); range at once; name and PD voltage after reboot |
 | Account | user, password | after reboot |
 
-The buttons "Reboot" and "Factory reset" (erases the settings) are at the
-bottom. The server speaks plain HTTP, so use it on a trusted network only. The
+**Bluetooth devices.** The page lists the paired devices, most recently
+connected first, with their name, address and whether they are connected.
+"Remove" forgets a device (it is disconnected first). "Pairing mode (3 min)"
+makes the speaker discoverable so a new device can pair; a connected device
+is disconnected for it, since the speaker cannot be found while connected.
+
+The buttons "Reboot" and "Factory reset" (erases the settings, not the
+paired devices) are at the bottom. The server speaks plain HTTP, so use it on a trusted network only. The
 passwords are never sent back to the browser; leave a password field empty to
 keep it.
 
@@ -332,7 +346,7 @@ table, and 16 MB flash.
 - SBC only; no AAC or other codecs.
 - No AVRCP (volume and playback control from the sink side).
 - One connection at a time; the device stops being discoverable while
-  connected.
+  connected. No reconnect after a link loss (only at boot).
 - The crossover and filters run on the ESP32 for now; the planned FPGA stage
   between the ESP32 and the amplifiers would take them over.
 

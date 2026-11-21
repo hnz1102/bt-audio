@@ -49,6 +49,11 @@ button.w{background:#b45309}button.d{background:#b91c1c}a{color:#93c5fd;float:ri
 input[type=range]{padding:0;border:0;background:none;accent-color:#3b82f6}output{float:right;color:#93c5fd}</style></head><body>
 <h1>BT Audio <a href="/logout">Log out</a></h1>
 <h2>Status</h2><dl id="st"><dt>Status</dt><dd>loading...</dd></dl>
+<h2>Bluetooth devices</h2>
+<div id="bt" style="font-size:.85em;background:#1a2233;padding:10px;border-radius:8px">loading...</div>
+<div id="pair" style="font-size:.8em;color:#94a3b8;margin-top:6px"></div>
+<button type="button" class="w" onclick="pair()">Pairing mode (3 min)</button>
+<div style="font-size:.8em;color:#94a3b8;margin-top:6px">At boot the speaker connects to the most recent device, then to the next one if that is not reachable. New devices can pair only in pairing mode (also the first 3 min after boot); a connected device is disconnected for it.</div>
 <form id="f">
 <h2>Audio</h2>
 <label>Software gain <output id="gain_q8_v"></output></label><input type="range" name="gain_q8" min="0" max="1024" step="4" data-live>
@@ -111,8 +116,13 @@ const rows=[['Time',na(s.time)],['Uptime',up(s.uptime_s)],
 ['USB PD',s.pd_mv===null?'--':(s.pd_mv/1000).toFixed(2)+' V, '+(s.pd_ma/1000).toFixed(3)+' A (set '+(s.pd_set_mv/1000).toFixed(1)+' V)'+(s.pd_fault?' <span class="bad">'+h(s.pd_fault)+'</span>':'')],
 ['Heap',s.heap_free+' bytes free (min '+s.heap_min+')'],['Firmware','v'+s.version]];
 $('#st').innerHTML=rows.map(([k,v])=>'<dt>'+k+'</dt><dd>'+v+'</dd>').join('')}catch(e){}}
+async function bt(){try{const r=await fetch('/api/bt');if(!r.ok)return;const b=await r.json();
+$('#bt').innerHTML=b.devices.length?b.devices.map((d,i)=>'<div style="display:flex;align-items:center;gap:8px;margin:4px 0"><span style="flex:1">'+(d.name?h(d.name):'(unknown)')+' <span style="color:#94a3b8">'+d.addr+'</span>'+(d.connected?' <b style="color:#4ade80">connected</b>':'')+(i==0?' <span style="color:#93c5fd">last</span>':'')+'</span><button type="button" class="d" style="margin:0;padding:5px 10px" onclick="unpair(\''+d.addr+'\')">Remove</button></div>').join(''):'No paired devices';
+$('#pair').textContent=b.pairing_s===null?(b.devices.length?'Not discoverable (paired devices can connect).':'Discoverable (no paired device yet).'):'Discoverable for pairing: '+b.pairing_s+' s left'}catch(e){}}
+async function pair(){await post('/api/bt/pair');bt()}
+async function unpair(a){if(confirm('Remove '+a+'?')){await post('/api/bt/remove','addr='+a);bt()}}
 $('#f').onsubmit=async e=>{e.preventDefault();alert(await post('/api/config',new URLSearchParams(new FormData(e.target)).toString()))};
-load();stat();setInterval(stat,5000);
+load();stat();bt();setInterval(()=>{stat();bt()},5000);
 </script></body></html>"#;
 
 // ─── Session ──────────────────────────────────────────────────────────────────
@@ -230,6 +240,24 @@ fn status_json(cfg: &Config) -> String {
     )
 }
 
+/// Bonded devices (most recent first) and the pairing window.
+fn bt_json() -> String {
+    let connected = crate::bt::connected();
+    let devices: Vec<String> = crate::bt::devices()
+        .iter()
+        .map(|b| {
+            format!(
+                "{{\"addr\":\"{}\",\"name\":\"{}\",\"connected\":{}}}",
+                crate::bt::format(b),
+                json_escape(&crate::bt::name(b).unwrap_or_default()),
+                connected == Some(*b)
+            )
+        })
+        .collect();
+    let pairing = crate::bt::pairing_remaining().map_or("null".to_string(), |s| s.to_string());
+    format!("{{\"pairing_s\":{pairing},\"devices\":[{}]}}", devices.join(","))
+}
+
 /// Keeps a numeric setting inside its range so a typo cannot store nonsense.
 fn clamped(value: &str, min: i64, max: i64, fallback: i64) -> String {
     value.trim().parse::<i64>().unwrap_or(fallback).clamp(min, max).to_string()
@@ -246,7 +274,7 @@ fn restart_soon() {
 
 pub fn start(cfg: Arc<Mutex<Config>>) -> anyhow::Result<EspHttpServer<'static>> {
     let session: Session = Arc::new(Mutex::new(None));
-    let conf = Configuration { max_uri_handlers: 13, max_open_sockets: 2, ..Default::default() };
+    let conf = Configuration { max_uri_handlers: 16, max_open_sockets: 2, ..Default::default() };
     let mut server = EspHttpServer::new(&conf)?;
 
     // Browsers ask for it on every page; answer without a body instead of a 404.
@@ -410,6 +438,48 @@ pub fn start(cfg: Arc<Mutex<Config>>) -> anyhow::Result<EspHttpServer<'static>> 
             crate::set_subsonic_hz(if v < 10 { 0 } else { v as u32 });
         }
         request.into_ok_response()?.write_all(b"OK")?;
+        Ok(())
+    })?;
+
+    let session_c = session.clone();
+    server.fn_handler("/api/bt", Method::Get, move |request| {
+        if !is_auth(request.header("Cookie"), &session_c) {
+            request.into_status_response(401)?.write_all(b"Unauthorized")?;
+            return Ok::<(), anyhow::Error>(());
+        }
+        let json = bt_json();
+        request
+            .into_response(200, Some("OK"), &[("Content-Type", "application/json")])?
+            .write_all(json.as_bytes())?;
+        Ok(())
+    })?;
+
+    let session_c = session.clone();
+    server.fn_handler("/api/bt/pair", Method::Post, move |request| {
+        if !is_auth(request.header("Cookie"), &session_c) {
+            request.into_status_response(401)?.write_all(b"Unauthorized")?;
+            return Ok::<(), anyhow::Error>(());
+        }
+        crate::bt::start_pairing();
+        request.into_ok_response()?.write_all(b"Pairing mode")?;
+        Ok(())
+    })?;
+
+    let session_c = session.clone();
+    server.fn_handler("/api/bt/remove", Method::Post, move |mut request| {
+        if !is_auth(request.header("Cookie"), &session_c) {
+            request.into_status_response(401)?.write_all(b"Unauthorized")?;
+            return Ok::<(), anyhow::Error>(());
+        }
+        let len = (request.content_len().unwrap_or(0) as usize).min(128);
+        let mut buf = vec![0u8; len];
+        request.read_exact(&mut buf).unwrap_or(());
+        let form = parse_form(&String::from_utf8_lossy(&buf));
+        match form.get("addr").and_then(|a| crate::bt::parse(a)) {
+            Some(bda) if crate::bt::remove(bda) => request.into_ok_response()?.write_all(b"Removed")?,
+            Some(_) => request.into_status_response(500)?.write_all(b"Remove failed")?,
+            None => request.into_status_response(400)?.write_all(b"Bad address")?,
+        }
         Ok(())
     })?;
 

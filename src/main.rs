@@ -34,6 +34,7 @@ use esp_idf_svc::sys::bt_shim::*;
 use esp_idf_svc::sys::*;
 use log::{error, info, warn};
 
+mod bt;
 mod clock;
 mod config;
 mod crossover;
@@ -641,6 +642,7 @@ fn controls_loop() {
     let mut next_current = Instant::now();
     let mut next_knob_log = Instant::now();
     loop {
+        bt::tick();
         if Instant::now() >= next_pd_poll {
             usbpd::poll();
             if let Some(r) = usbpd::measure() {
@@ -787,9 +789,16 @@ unsafe extern "C" fn gap_cb(event: esp_bt_gap_cb_event_t, param: *mut esp_bt_gap
             let auth = &param.auth_cmpl;
             if auth.stat == esp_bt_status_t_ESP_BT_STATUS_SUCCESS {
                 let name = std::ffi::CStr::from_ptr(auth.device_name.as_ptr() as *const _);
-                info!("authenticated: {}", name.to_string_lossy());
+                bt::on_authenticated(auth.bda, &name.to_string_lossy());
             } else {
                 warn!("authentication failed, status {}", auth.stat);
+            }
+        }
+        esp_bt_gap_cb_event_t_ESP_BT_GAP_READ_REMOTE_NAME_EVT => {
+            let r = &param.read_rmt_name;
+            if r.stat == esp_bt_status_t_ESP_BT_STATUS_SUCCESS {
+                let name = std::ffi::CStr::from_ptr(r.rmt_name.as_ptr() as *const _);
+                bt::on_remote_name(r.bda, &name.to_string_lossy());
             }
         }
         // Numeric comparison (SSP): accept automatically since we have no UI.
@@ -811,30 +820,21 @@ unsafe extern "C" fn a2d_cb(event: esp_a2d_cb_event_t, param: *mut esp_a2d_cb_pa
     let param = &*param;
     match event {
         esp_a2d_cb_event_t_ESP_A2D_PROF_STATE_EVT => {
-            esp_bt_gap_set_scan_mode(
-                esp_bt_connection_mode_t_ESP_BT_CONNECTABLE,
-                esp_bt_discovery_mode_t_ESP_BT_GENERAL_DISCOVERABLE,
-            );
-            info!("discoverable");
+            if param.a2d_prof_stat.init_state == esp_a2d_init_state_t_ESP_A2D_INIT_SUCCESS {
+                bt::on_ready();
+            }
         }
         esp_a2d_cb_event_t_ESP_A2D_CONNECTION_STATE_EVT => {
             let state = param.conn_stat.state;
+            let bda = param.conn_stat.remote_bda;
             if state == esp_a2d_connection_state_t_ESP_A2D_CONNECTION_STATE_CONNECTED {
-                info!("connected: {:02x?}", param.conn_stat.remote_bda);
                 BT_CONNECTED.store(true, Ordering::Relaxed);
-                esp_bt_gap_set_scan_mode(
-                    esp_bt_connection_mode_t_ESP_BT_NON_CONNECTABLE,
-                    esp_bt_discovery_mode_t_ESP_BT_NON_DISCOVERABLE,
-                );
+                bt::on_connected(bda);
             } else if state == esp_a2d_connection_state_t_ESP_A2D_CONNECTION_STATE_DISCONNECTED {
-                info!("disconnected");
                 BT_CONNECTED.store(false, Ordering::Relaxed);
                 PLAYING.store(false, Ordering::Relaxed);
                 let _ = set_amp_mute(true);
-                esp_bt_gap_set_scan_mode(
-                    esp_bt_connection_mode_t_ESP_BT_CONNECTABLE,
-                    esp_bt_discovery_mode_t_ESP_BT_GENERAL_DISCOVERABLE,
-                );
+                bt::on_disconnected(bda);
             }
         }
         esp_a2d_cb_event_t_ESP_A2D_AUDIO_STATE_EVT => {
