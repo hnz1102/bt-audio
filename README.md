@@ -22,18 +22,26 @@ Bluetooth (A2DP/SBC) -> Bluedroid decoder -> bounded channel -> I2S writer threa
   automatically (SSP numeric comparison, with a legacy PIN of `1234` as
   fallback).
 - Several devices can be paired; Bluedroid keeps the bonds in NVS. A new
-  device can pair only while the speaker is discoverable: the first 3 min
-  after boot, 3 min after "Pairing mode" in the web UI, and always while no
-  device is paired. Paired devices can connect whenever no other device is
+  device can pair only while the speaker is discoverable: 3 min after
+  "Pairing mode" in the web UI, and always while no device is paired (being
+  discoverable takes radio time from the audio stream). Paired devices can connect whenever no other device is
   connected.
 - At boot the speaker connects to the paired device that connected last; if
   that one is not reachable it tries the next most recent, and so on (up to
   8 devices). The order and the device names are kept in NVS (`src/bt.rs`).
 - The Bluedroid stack decodes SBC and hands 16-bit stereo PCM to a callback
   running on the Bluetooth task. The callback copies each packet into a
-  bounded queue (4 packets) and drops it if the queue is full or the heap is
-  short (a count of dropped packets is logged every minute), so a slow
-  I2S write never stalls the Bluetooth stack.
+  jitter buffer (at most 32 KB, ~185 ms) and drops it if the buffer is full
+  or the free heap would fall below 12 KB, so a slow I2S write never stalls
+  the Bluetooth stack. The drops are logged every minute by reason (buffer
+  full / heap short, with the lowest free heap at a heap-short drop).
+- Playback starts once 80 ms of audio is buffered, and buffers again after
+  the stream paused long enough to run dry. Some sources (Windows PCs) pause
+  and then send a burst; the buffer rides that out. The I2S DMA holds another
+  ~43 ms. The `i2s-writer` thread runs on CPU1 at priority 15, away from the
+  Bluetooth and WiFi tasks on CPU0. The buffer keeps 16-bit PCM, half the memory of the 32-bit DMA
+  slots. The minute log reports underruns and rebuffers during playback, and
+  after a drop or underrun also the buffer level, its peak and the free heap.
 - A separate `i2s-writer` thread applies a software gain, then writes to the
   I2S channel.
 - The I2S sample rate follows the rate negotiated by the source (16, 32,
@@ -303,7 +311,9 @@ Constants in [src/main.rs](src/main.rs):
 |----------|---------|---------|
 | `DEFAULT_SAMPLE_RATE` | `44_100` | I2S rate before the source negotiates one |
 | `GAIN_Q8` | `256` | Initial software gain in Q8 fixed point (256 = 1.0x); the setting from the web UI replaces it |
-| `QUEUE_DEPTH` | `4` | Packets buffered between the Bluetooth task and the I2S writer (about 23 ms each; kept small to leave heap for WiFi) |
+| `PREFILL_MS` | `80` | Audio buffered before playback starts or resumes after running dry |
+| `QUEUE_MAX_BYTES` | 32 KB | Most PCM buffered between the Bluetooth task and the I2S writer (~185 ms at 44.1 kHz) |
+| `HEAP_FLOOR` | 12 KB | A packet is dropped rather than buffered when the free heap would fall below this |
 | `PIN_BCK`, `PIN_WS`, `PIN_DOUT`, `PIN_MCLK` | 26, 25, 22, 0 | I2S pins |
 | `PIN_SDA`, `PIN_SCL` | 21, 18 | I2C pins |
 | `AMP_MAIN`, `AMP_WOOFER` | `0x4C`, `0x4D` | Amplifier I2C addresses (7-bit) |

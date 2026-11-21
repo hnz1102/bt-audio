@@ -53,7 +53,7 @@ input[type=range]{padding:0;border:0;background:none;accent-color:#3b82f6}output
 <div id="bt" style="font-size:.85em;background:#1a2233;padding:10px;border-radius:8px">loading...</div>
 <div id="pair" style="font-size:.8em;color:#94a3b8;margin-top:6px"></div>
 <button type="button" class="w" onclick="pair()">Pairing mode (3 min)</button>
-<div style="font-size:.8em;color:#94a3b8;margin-top:6px">At boot the speaker connects to the most recent device, then to the next one if that is not reachable. New devices can pair only in pairing mode (also the first 3 min after boot); a connected device is disconnected for it.</div>
+<div style="font-size:.8em;color:#94a3b8;margin-top:6px">At boot the speaker connects to the most recent device, then to the next one if that is not reachable. New devices can pair only in pairing mode (or while no device is paired); a connected device is disconnected for it.</div>
 <form id="f">
 <h2>Audio</h2>
 <label>Software gain <output id="gain_q8_v"></output></label><input type="range" name="gain_q8" min="0" max="1024" step="4" data-live>
@@ -124,6 +124,12 @@ async function unpair(a){if(confirm('Remove '+a+'?')){await post('/api/bt/remove
 $('#f').onsubmit=async e=>{e.preventDefault();alert(await post('/api/config',new URLSearchParams(new FormData(e.target)).toString()))};
 load();stat();bt();setInterval(()=>{stat();bt()},5000);
 </script></body></html>"#;
+
+/// Entity tag of the main page: FNV-1a hash of its text.
+fn page_etag() -> String {
+    let hash = PAGE_HTML.bytes().fold(0x811c_9dc5u32, |h, b| (h ^ b as u32).wrapping_mul(0x0100_0193));
+    format!("\"{hash:08x}\"")
+}
 
 // ─── Session ──────────────────────────────────────────────────────────────────
 
@@ -323,7 +329,15 @@ pub fn start(cfg: Arc<Mutex<Config>>) -> anyhow::Result<EspHttpServer<'static>> 
             request.into_response(302, Some("Found"), &[("Location", "/login")])?;
             return Ok::<(), anyhow::Error>(());
         }
-        let mut response = request.into_response(200, Some("OK"), &[("Content-Type", "text/html; charset=UTF-8")])?;
+        // A reload only revalidates the page: sending it again over WiFi
+        // made the A2DP stream drop packets.
+        let etag = page_etag();
+        if request.header("If-None-Match") == Some(etag.as_str()) {
+            request.into_response(304, Some("Not Modified"), &[("ETag", etag.as_str())])?;
+            return Ok(());
+        }
+        let headers = [("Content-Type", "text/html; charset=UTF-8"), ("ETag", etag.as_str()), ("Cache-Control", "no-cache")];
+        let mut response = request.into_response(200, Some("OK"), &headers)?;
         response.write_all(PAGE_HTML.as_bytes())?;
         Ok(())
     })?;

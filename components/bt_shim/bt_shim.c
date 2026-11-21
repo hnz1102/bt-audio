@@ -53,8 +53,9 @@ esp_err_t bt_shim_i2s_start(uint32_t sample_rate, int bck, int ws, int dout, int
 {
     i2s_chan_config_t chan_cfg = I2S_CHANNEL_DEFAULT_CONFIG(I2S_NUM_AUTO, I2S_ROLE_MASTER);
     chan_cfg.auto_clear = true;
-    /* 8 x 480 frames x 8 bytes (2 x 32-bit slots) = 30 KB, ~87 ms at 44.1 kHz. */
-    chan_cfg.dma_desc_num = 8;
+    /* 4 x 480 frames x 8 bytes (2 x 32-bit slots) = 15 KB, ~43 ms at 44.1 kHz.
+     * The jitter buffer in front of it holds 16-bit PCM, half the memory. */
+    chan_cfg.dma_desc_num = 4;
     chan_cfg.dma_frame_num = 480;
     esp_err_t err = i2s_new_channel(&chan_cfg, &s_tx, NULL);
     if (err != ESP_OK) {

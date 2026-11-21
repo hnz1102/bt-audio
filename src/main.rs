@@ -19,7 +19,7 @@
 
 use std::ffi::CString;
 use std::slice;
-use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicUsize, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
 use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
@@ -73,11 +73,24 @@ pub fn set_subsonic_hz(hz: u32) {
 // Software gain in Q8 fixed point (256 = 1.0x). Samples are clamped, so large
 // values clip loud material. Set from the web UI settings.
 static GAIN_Q8: AtomicI32 = AtomicI32::new(256);
-// Queue depth between the BT task and the I2S writer, in A2DP packets (about
-// 4 KB / 23 ms each at 44.1 kHz). The I2S DMA buffers hold another ~170 ms.
-// Kept small: WiFi leaves only ~40 KB of heap, and a full queue of large
-// packets would exhaust it.
-const QUEUE_DEPTH: usize = 4;
+// Jitter buffer between the BT task and the I2S writer. A2DP packets (about
+// 4 KB / 23 ms each at 44.1 kHz) are queued as 16-bit PCM, which costs half
+// the memory of the 32-bit I2S DMA buffers (~43 ms). Some sources (Windows)
+// pause and then send a burst; the buffer rides that out.
+// Playback starts, and restarts after the buffer ran dry, once PREFILL_MS of
+// audio is queued (or after PREFILL_MAX, e.g. for a short sound). Kept below
+// what the heap allows (~25 KB of buffer) so a burst on top still fits.
+const PREFILL_MS: usize = 80;
+const PREFILL_MAX: Duration = Duration::from_millis(400);
+// Most PCM bytes queued (~185 ms at 44.1 kHz); a packet beyond it is dropped.
+const QUEUE_MAX_BYTES: usize = 32 * 1024;
+// A packet is dropped rather than queued when the free heap would fall below
+// this, so WiFi and Bluetooth keep enough memory.
+const HEAP_FLOOR: usize = 12 * 1024;
+// Channel slots; the byte limit above is what bounds the queue.
+const QUEUE_SLOTS: usize = 16;
+// No packet for this long: the DMA (~43 ms) has run dry, so buffer again.
+const GAP: Duration = Duration::from_millis(60);
 
 // I2S pins for the amplifiers. MCLK (256 x fs) must be GPIO0, 1 or 3 on the ESP32.
 const PIN_BCK: i32 = 26;
@@ -253,60 +266,16 @@ fn main() -> Result<()> {
         .stack_size(4096)
         .spawn(controls_loop)?;
 
-    let (tx, rx) = sync_channel::<Msg>(QUEUE_DEPTH);
+    let (tx, rx) = sync_channel::<Msg>(QUEUE_SLOTS);
     AUDIO_TX.set(tx).ok();
-    thread::Builder::new()
-        .name("i2s-writer".into())
-        .stack_size(4096)
-        .spawn(move || {
-            // Without the woofer amplifier the main one plays the full range.
-            let woofer = SPLIT_WOOFER && AMP_PRESENT[1].load(Ordering::Relaxed);
-            if !SPLIT_WOOFER {
-                info!("16-bit I2S: crossover off, both amplifiers play full range");
-            } else if !woofer {
-                warn!("woofer amplifier missing: crossover off, main amplifier plays full range");
-            }
-            let mut xover = crossover::Crossover::new(CROSSOVER_HZ.load(Ordering::Relaxed), SUBSONIC_HZ.load(Ordering::Relaxed), DEFAULT_SAMPLE_RATE);
-            let mut limit_main = crossover::Limiter::new(DEFAULT_SAMPLE_RATE, crossover::CEILING);
-            let mut limit_woofer = crossover::Limiter::new(DEFAULT_SAMPLE_RATE, crossover::CEILING);
-            let mut out = Vec::new();
-            // Gains applied at the end of the previous packet (main, woofer boost).
-            let mut state = RenderState::new();
-            for msg in rx {
-                match msg {
-                    Msg::Pcm(data) => {
-                        xover.set_freq(CROSSOVER_HZ.load(Ordering::Relaxed));
-                        xover.set_subsonic(SUBSONIC_HZ.load(Ordering::Relaxed));
-                        xover.set_eq(BASS_EQ_HZ.load(Ordering::Relaxed), BASS_EQ_DB.load(Ordering::Relaxed));
-                        out.clear();
-                        if out.try_reserve(data.len() * 2).is_err() {
-                            DROPPED_PACKETS.fetch_add(1, Ordering::Relaxed);
-                            continue;
-                        }
-                        render(&data, &mut out, woofer.then_some(&mut xover), &mut state, &mut limit_main, &mut limit_woofer);
-                        LIMITED[0].fetch_add(std::mem::take(&mut limit_main.engaged), Ordering::Relaxed);
-                        LIMITED[1].fetch_add(std::mem::take(&mut limit_woofer.engaged), Ordering::Relaxed);
-                        drop(data);
-                        let mut off = 0;
-                        while off < out.len() {
-                            let n = unsafe { bt_shim_i2s_write(out[off..].as_ptr(), out.len() - off) };
-                            if n == 0 {
-                                break;
-                            }
-                            off += n;
-                        }
-                    }
-                    Msg::Rate(rate) => {
-                        if let Err(e) = esp!(unsafe { bt_shim_i2s_set_rate(rate) }) {
-                            warn!("i2s set rate {rate} failed: {e}");
-                        }
-                        xover.set_rate(rate);
-                        limit_main.set_rate(rate);
-                        limit_woofer.set_rate(rate);
-                    }
-                }
-            }
-        })?;
+    // Bluetooth and WiFi run on CPU0 at high priority; a burst of packets kept
+    // an unpinned writer from running and the DMA ran dry with audio still
+    // buffered. Give it CPU1 and a priority above the other app threads.
+    ThreadSpawnConfiguration { name: Some(b"i2s-writer\0"), pin_to_core: Some(Core::Core1), priority: 15, ..Default::default() }
+        .set()?;
+    let writer = thread::Builder::new().stack_size(4096).spawn(move || i2s_writer(rx));
+    ThreadSpawnConfiguration::default().set()?;
+    writer?;
 
     esp!(unsafe { bt_shim_controller_start() })?;
     esp!(unsafe { esp_bluedroid_init() })?;
@@ -332,8 +301,19 @@ pub static PLAYING: AtomicBool = AtomicBool::new(false);
 // Status for the web UI.
 pub static BT_CONNECTED: AtomicBool = AtomicBool::new(false);
 pub static SAMPLE_RATE: AtomicU32 = AtomicU32::new(0);
-/// A2DP packets dropped because the queue was full or memory ran out.
-pub static DROPPED_PACKETS: AtomicU32 = AtomicU32::new(0);
+/// A2DP packets dropped: [buffer full, heap short].
+static DROPPED_PACKETS: [AtomicU32; 2] = [AtomicU32::new(0), AtomicU32::new(0)];
+const DROP_FULL: usize = 0;
+const DROP_HEAP: usize = 1;
+/// Lowest free heap seen at a heap-short drop since the last log.
+static DROP_HEAP_FREE: AtomicU32 = AtomicU32::new(u32::MAX);
+
+fn drop_packet(reason: usize) {
+    DROPPED_PACKETS[reason].fetch_add(1, Ordering::Relaxed);
+    if reason == DROP_HEAP {
+        DROP_HEAP_FREE.fetch_min(unsafe { esp_get_free_heap_size() }, Ordering::Relaxed);
+    }
+}
 /// Samples at which the main / woofer limiter turned the level down.
 static LIMITED: [AtomicU32; 2] = [AtomicU32::new(0), AtomicU32::new(0)];
 
@@ -657,9 +637,15 @@ fn controls_loop() {
         }
         if Instant::now() >= next_pd_log {
             usbpd::log_output();
-            let dropped = DROPPED_PACKETS.swap(0, Ordering::Relaxed);
-            if dropped > 0 {
-                warn!("audio: {dropped} packets dropped in the last {} s", PD_LOG_INTERVAL.as_secs());
+            let full = DROPPED_PACKETS[DROP_FULL].swap(0, Ordering::Relaxed);
+            let heap = DROPPED_PACKETS[DROP_HEAP].swap(0, Ordering::Relaxed);
+            let heap_free = DROP_HEAP_FREE.swap(u32::MAX, Ordering::Relaxed);
+            if full > 0 || heap > 0 {
+                let at = if heap > 0 { format!(" (free heap down to {heap_free} bytes)") } else { String::new() };
+                warn!(
+                    "audio: packets dropped in the last {} s: {full} buffer full, {heap} heap short{at}",
+                    PD_LOG_INTERVAL.as_secs()
+                );
             }
             let main = LIMITED[0].swap(0, Ordering::Relaxed);
             let woofer = LIMITED[1].swap(0, Ordering::Relaxed);
@@ -669,10 +655,29 @@ fn controls_loop() {
                     PD_LOG_INTERVAL.as_secs()
                 );
             }
-            // The DMA also underruns while idle; count only during playback.
-            let underruns = unsafe { bt_shim_i2s_underruns() };
-            if underruns > 0 && PLAYING.load(Ordering::Relaxed) {
-                warn!("audio: {underruns} I2S underruns in the last {} s", PD_LOG_INTERVAL.as_secs());
+            // The DMA also underruns while idle or filling the buffer; count
+            // only the ones during playback.
+            let mut underruns = PLAY_UNDERRUNS.swap(0, Ordering::Relaxed);
+            if !PREFILLING.load(Ordering::Relaxed) {
+                underruns += unsafe { bt_shim_i2s_underruns() };
+            }
+            let rebuffers = REBUFFERS.swap(0, Ordering::Relaxed);
+            let peak = QUEUE_PEAK.swap(0, Ordering::Relaxed);
+            // Buffer level only when something went wrong in this interval.
+            let trouble = full > 0 || heap > 0 || underruns > 0 || rebuffers > 0;
+            if trouble && PLAYING.load(Ordering::Relaxed) {
+                info!(
+                    "audio: buffer {} bytes now, peak {peak}; free heap {} bytes",
+                    QUEUED_BYTES.load(Ordering::Relaxed),
+                    unsafe { esp_get_free_heap_size() }
+                );
+            }
+            if (underruns > 0 || rebuffers > 0) && PLAYING.load(Ordering::Relaxed) {
+                warn!(
+                    "audio: {underruns} I2S underruns, {rebuffers} rebuffers in the last {} s (heap min {} bytes)",
+                    PD_LOG_INTERVAL.as_secs(),
+                    unsafe { esp_get_minimum_free_heap_size() }
+                );
             }
             next_pd_log += PD_LOG_INTERVAL;
         }
@@ -701,6 +706,137 @@ fn controls_loop() {
             last_clear = None;
         }
         thread::sleep(Duration::from_millis(20));
+    }
+}
+
+/// PCM bytes queued for the I2S writer (in the channel or its prefill buffer).
+static QUEUED_BYTES: AtomicUsize = AtomicUsize::new(0);
+/// Most PCM bytes queued since the last log.
+static QUEUE_PEAK: AtomicUsize = AtomicUsize::new(0);
+/// Times the buffer ran dry during playback and was filled again.
+static REBUFFERS: AtomicU32 = AtomicU32::new(0);
+/// The writer is filling its buffer; the DMA underruns meanwhile.
+static PREFILLING: AtomicBool = AtomicBool::new(true);
+/// DMA underruns counted while playing, collected when prefilling starts.
+static PLAY_UNDERRUNS: AtomicU32 = AtomicU32::new(0);
+
+/// Takes packets from the BT task, holds PREFILL_MS of them before playing,
+/// and renders them to the I2S DMA.
+fn i2s_writer(rx: std::sync::mpsc::Receiver<Msg>) {
+    // Without the woofer amplifier the main one plays the full range.
+    let woofer = SPLIT_WOOFER && AMP_PRESENT[1].load(Ordering::Relaxed);
+    if !SPLIT_WOOFER {
+        info!("16-bit I2S: crossover off, both amplifiers play full range");
+    } else if !woofer {
+        warn!("woofer amplifier missing: crossover off, main amplifier plays full range");
+    }
+    let mut w = Writer {
+        woofer,
+        xover: crossover::Crossover::new(CROSSOVER_HZ.load(Ordering::Relaxed), SUBSONIC_HZ.load(Ordering::Relaxed), DEFAULT_SAMPLE_RATE),
+        limit_main: crossover::Limiter::new(DEFAULT_SAMPLE_RATE, crossover::CEILING),
+        limit_woofer: crossover::Limiter::new(DEFAULT_SAMPLE_RATE, crossover::CEILING),
+        out: Vec::new(),
+        state: RenderState::new(),
+    };
+    let mut rate = DEFAULT_SAMPLE_RATE as usize;
+    let mut pending: std::collections::VecDeque<Vec<u8>> = std::collections::VecDeque::new();
+    let mut pending_bytes = 0;
+    let mut fill_start = Instant::now();
+    let mut prefilling = true;
+    loop {
+        let timeout = if prefilling { Duration::from_millis(20) } else { GAP };
+        match rx.recv_timeout(timeout) {
+            Ok(Msg::Pcm(data)) if prefilling => {
+                if pending.is_empty() {
+                    fill_start = Instant::now();
+                }
+                pending_bytes += data.len();
+                pending.push_back(data);
+            }
+            Ok(Msg::Pcm(data)) => w.play(data),
+            Ok(Msg::Rate(r)) => {
+                rate = r as usize;
+                w.set_rate(r);
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                if !prefilling {
+                    prefilling = true;
+                    PREFILLING.store(true, Ordering::Relaxed);
+                    // Underruns so far happened while playing; the ones from
+                    // now on are the buffer filling.
+                    PLAY_UNDERRUNS.fetch_add(unsafe { bt_shim_i2s_underruns() }, Ordering::Relaxed);
+                    if PLAYING.load(Ordering::Relaxed) {
+                        REBUFFERS.fetch_add(1, Ordering::Relaxed);
+                    }
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+        }
+        if prefilling
+            && !pending.is_empty()
+            && (pending_bytes >= rate * 4 * PREFILL_MS / 1000 || fill_start.elapsed() >= PREFILL_MAX)
+        {
+            prefilling = false;
+            unsafe { bt_shim_i2s_underruns() };
+            PREFILLING.store(false, Ordering::Relaxed);
+            pending_bytes = 0;
+            while let Some(data) = pending.pop_front() {
+                w.play(data);
+            }
+        }
+    }
+}
+
+/// The I2S writer's processing chain.
+struct Writer {
+    woofer: bool,
+    xover: crossover::Crossover,
+    limit_main: crossover::Limiter,
+    limit_woofer: crossover::Limiter,
+    out: Vec<u8>,
+    state: RenderState,
+}
+
+impl Writer {
+    /// Renders one packet and writes it to the DMA (blocks while it is full).
+    fn play(&mut self, data: Vec<u8>) {
+        QUEUED_BYTES.fetch_sub(data.len(), Ordering::Relaxed);
+        self.xover.set_freq(CROSSOVER_HZ.load(Ordering::Relaxed));
+        self.xover.set_subsonic(SUBSONIC_HZ.load(Ordering::Relaxed));
+        self.xover.set_eq(BASS_EQ_HZ.load(Ordering::Relaxed), BASS_EQ_DB.load(Ordering::Relaxed));
+        self.out.clear();
+        if self.out.try_reserve(data.len() * 2).is_err() {
+            drop_packet(DROP_HEAP);
+            return;
+        }
+        render(
+            &data,
+            &mut self.out,
+            self.woofer.then_some(&mut self.xover),
+            &mut self.state,
+            &mut self.limit_main,
+            &mut self.limit_woofer,
+        );
+        LIMITED[0].fetch_add(std::mem::take(&mut self.limit_main.engaged), Ordering::Relaxed);
+        LIMITED[1].fetch_add(std::mem::take(&mut self.limit_woofer.engaged), Ordering::Relaxed);
+        drop(data);
+        let mut off = 0;
+        while off < self.out.len() {
+            let n = unsafe { bt_shim_i2s_write(self.out[off..].as_ptr(), self.out.len() - off) };
+            if n == 0 {
+                break;
+            }
+            off += n;
+        }
+    }
+
+    fn set_rate(&mut self, rate: u32) {
+        if let Err(e) = esp!(unsafe { bt_shim_i2s_set_rate(rate) }) {
+            warn!("i2s set rate {rate} failed: {e}");
+        }
+        self.xover.set_rate(rate);
+        self.limit_main.set_rate(rate);
+        self.limit_woofer.set_rate(rate);
     }
 }
 
@@ -876,13 +1012,25 @@ unsafe extern "C" fn a2d_data_cb(buf: *const u8, len: u32) {
     // Drop the packet rather than block the BT stack when the writer can't keep
     // up, and rather than abort when the heap is short.
     let data = slice::from_raw_parts(buf, len as usize);
+    let queued = QUEUED_BYTES.load(Ordering::Relaxed);
+    if queued + data.len() > QUEUE_MAX_BYTES {
+        drop_packet(DROP_FULL);
+        return;
+    }
+    if (esp_get_free_heap_size() as usize) < HEAP_FLOOR + data.len() {
+        drop_packet(DROP_HEAP);
+        return;
+    }
     let mut pcm = Vec::new();
     if pcm.try_reserve_exact(data.len()).is_err() {
-        DROPPED_PACKETS.fetch_add(1, Ordering::Relaxed);
+        drop_packet(DROP_HEAP);
         return;
     }
     pcm.extend_from_slice(data);
+    let level = QUEUED_BYTES.fetch_add(data.len(), Ordering::Relaxed) + data.len();
+    QUEUE_PEAK.fetch_max(level, Ordering::Relaxed);
     if tx.try_send(Msg::Pcm(pcm)).is_err() {
-        DROPPED_PACKETS.fetch_add(1, Ordering::Relaxed);
+        QUEUED_BYTES.fetch_sub(data.len(), Ordering::Relaxed);
+        drop_packet(DROP_FULL);
     }
 }

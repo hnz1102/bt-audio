@@ -9,8 +9,9 @@
 //! device; when that one is not reachable it tries the next one, and so on.
 //!
 //! New devices can only pair while the speaker is discoverable: for
-//! PAIRING_WINDOW after boot or after "Pairing mode" in the web UI, and
-//! always while no device is bonded. Bonded devices can connect whenever no
+//! PAIRING_WINDOW after "Pairing mode" in the web UI, and always while no
+//! device is bonded. Being discoverable costs radio time (inquiry scan) and
+//! made the A2DP stream drop packets, so it is off otherwise. Bonded devices can connect whenever no
 //! other device is connected.
 
 use std::ffi::{CStr, CString};
@@ -25,7 +26,7 @@ pub type Bda = [u8; 6];
 const NVS_NS: &str = "btaudio_bt";
 // Bonded addresses, most recently connected first (blob of 6-byte entries).
 const KEY_ORDER: &str = "order";
-// How long the speaker stays discoverable after boot or "Pairing mode".
+// How long the speaker stays discoverable after "Pairing mode".
 pub const PAIRING_WINDOW: Duration = Duration::from_secs(180);
 // Bonded devices tried at boot, at most.
 const MAX_RECONNECT: usize = 8;
@@ -43,6 +44,11 @@ struct State {
 
 static STATE: Mutex<State> =
     Mutex::new(State { connected: None, reconnect: Vec::new(), attempt: None, pairing_until: None, scan: None });
+
+// RAM copies of the NVS entries, so the web UI's polling never reads flash
+// (a flash read suspends the cache and can stall the audio path).
+static ORDER: Mutex<Option<Vec<Bda>>> = Mutex::new(None);
+static NAMES: Mutex<Vec<(Bda, Option<String>)>> = Mutex::new(Vec::new());
 
 pub fn format(bda: &Bda) -> String {
     bda.iter().map(|b| format!("{b:02x}")).collect::<Vec<_>>().join(":")
@@ -77,13 +83,24 @@ pub fn pairing_remaining() -> Option<u64> {
 
 /// Stored name of a bonded device.
 pub fn name(bda: &Bda) -> Option<String> {
-    nvs_get_str_val(&name_key(bda))
+    let mut names = NAMES.lock().unwrap();
+    if let Some((_, n)) = names.iter().find(|(b, _)| b == bda) {
+        return n.clone();
+    }
+    let n = nvs_get_str_val(&name_key(bda));
+    names.push((*bda, n.clone()));
+    n
 }
 
-/// A2DP is ready (at boot): open the pairing window and start reconnecting.
+fn cache_name(bda: &Bda, n: Option<String>) {
+    let mut names = NAMES.lock().unwrap();
+    names.retain(|(b, _)| b != bda);
+    names.push((*bda, n));
+}
+
+/// A2DP is ready (at boot): start reconnecting.
 pub fn on_ready() {
     let mut st = STATE.lock().unwrap();
-    st.pairing_until = Some(Instant::now() + PAIRING_WINDOW);
     st.reconnect = devices();
     st.reconnect.truncate(MAX_RECONNECT);
     apply_scan(&mut st);
@@ -163,6 +180,7 @@ pub fn remove(bda: Bda) -> bool {
     order.retain(|o| *o != bda);
     save_order(&order);
     nvs_erase(&name_key(&bda));
+    cache_name(&bda, None);
     info!("removed bonded device {}", format(&bda));
     // With no bond left the speaker is discoverable again.
     apply_scan(&mut STATE.lock().unwrap());
@@ -252,10 +270,21 @@ fn save_name(bda: &Bda, device_name: &str) {
                 unsafe { nvs_set_str(h, k.as_ptr(), v.as_ptr()) };
             }
         });
+        cache_name(bda, Some(device_name.to_string()));
     }
 }
 
 fn load_order() -> Vec<Bda> {
+    let mut cache = ORDER.lock().unwrap();
+    if let Some(order) = cache.as_ref() {
+        return order.clone();
+    }
+    let order = read_order();
+    *cache = Some(order.clone());
+    order
+}
+
+fn read_order() -> Vec<Bda> {
     with_nvs(false, |h| {
         let key = CString::new(KEY_ORDER).unwrap();
         let mut len = 0usize;
@@ -274,6 +303,10 @@ fn load_order() -> Vec<Bda> {
 }
 
 fn save_order(order: &[Bda]) {
+    if ORDER.lock().unwrap().as_deref() == Some(order) {
+        return;
+    }
+    *ORDER.lock().unwrap() = Some(order.to_vec());
     let buf: Vec<u8> = order.iter().flatten().copied().collect();
     with_nvs(true, |h| {
         let key = CString::new(KEY_ORDER).unwrap();
