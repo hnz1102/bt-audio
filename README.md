@@ -146,9 +146,10 @@ and structs are awkward to use from Rust.
 - An AP33772S USB PD sink controller board on the I2C bus (SDA/SCL below,
   address `0x52`); its VOUT is the PVDD supply, which the TAS5754M allows up
   to 26.4 V.
-- Two 10 kΩ A-taper (audio) potentiometers for the main and woofer volume. The
-  firmware undoes the A curve (`POT_TAPER_MID`, 0.15 = 15 % at half rotation;
-  set 0.5 for a linear B pot) so the volume in dB follows the rotation evenly.
+- Two 10 kΩ B-taper (linear) potentiometers for the main and woofer volume.
+  The firmware maps the rotation to the volume in dB evenly. For A-taper
+  (audio) pots set `POT_TAPER_MID` to 0.15 (15 % at half rotation) and the
+  firmware undoes the A curve; the default 0.5 is for a linear B pot.
 - 16 MB flash (the partition table and `sdkconfig.defaults` assume it; adjust
   `CONFIG_ESPTOOLPY_FLASHSIZE_*` for other sizes).
 

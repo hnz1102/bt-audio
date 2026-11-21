@@ -115,13 +115,13 @@ const ADC_SAMPLES: i32 = 16;
 // After a failed I2C access to a fitted amplifier it is left alone this long,
 // so it is not hammered with transfers that are never acknowledged.
 const AMP_RETRY: Duration = Duration::from_secs(5);
-// Volume knobs are 10k A-taper (audio) pots: fraction of the full voltage at
-// half rotation (0.15 for the common 15 % A curve, 0.5 for a linear B pot).
-const POT_TAPER_MID: f32 = 0.15;
+// Volume knobs are 10k B-taper (linear) pots: fraction of the full voltage at
+// half rotation (0.5 for a linear B pot, 0.15 for the common 15 % A curve).
+const POT_TAPER_MID: f32 = 0.5;
 // Readings below ADC_MIN mute; a muted knob unmutes only above ADC_UNMUTE, so
 // noise around the threshold cannot switch the sound on and off. The ESP32
-// ADC reads ~0 below about 0.1 V, which with an A-taper pot is the first
-// ~20 % of the rotation. The ADC saturates near ADC_MAX.
+// ADC reads ~0 below about 0.1 V, which with a B-taper pot is the first
+// ~3 % of the rotation (~20 % with an A-taper pot). The ADC saturates near ADC_MAX.
 // Knob movement (fraction of the rotation) needed before the volume follows.
 const KNOB_HYSTERESIS: f32 = 0.01;
 // A volume register is rewritten only when the target moves this many 0.5 dB
@@ -133,6 +133,9 @@ const KNOB_SMOOTHING: f32 = 0.15;
 // turned.
 const KNOB_RAW_HYSTERESIS: f32 = 16.0;
 const KNOB_SETTLE: u32 = 2;
+// While tuning ADC_MIN / ADC_UNMUTE: log the knob readings this often (None
+// turns the log off).
+const KNOB_LOG_INTERVAL: Option<Duration> = None;
 // Bass knob: woofer level relative to the master volume, +-12 dB around
 // mid rotation, in 0.5 dB steps.
 const BASS_RANGE_STEPS: i32 = 24;
@@ -143,8 +146,8 @@ const WOOFER_BOOST_MAX_STEPS: i32 = 12;
 // by the controls thread and ramped by the audio path. 0 = muted.
 static MAIN_VOL_GAIN: AtomicU32 = AtomicU32::new(0);
 static WOOFER_VOL_GAIN: AtomicU32 = AtomicU32::new(0);
-const ADC_MIN: i32 = 64;
-const ADC_UNMUTE: i32 = 160;
+const ADC_MIN: i32 = 10;
+const ADC_UNMUTE: i32 = 25;
 const ADC_MAX: i32 = 4000;
 
 // TAS5754M registers (page 0). Volume is 0.5 dB per step: 0x30 = 0 dB.
@@ -401,7 +404,8 @@ fn amp_init(addr: u8) -> Result<(), EspError> {
     Ok(())
 }
 
-/// Knob rotation (0..1) from a reading of an A-taper (audio, log) pot: the
+/// Knob rotation (0..1) from a pot reading. For a B-taper (linear) pot it is
+/// the reading itself. For an A-taper (audio, log) pot the
 /// wiper voltage follows v = (A^x - 1) / (A - 1), where A is chosen so the
 /// voltage is POT_TAPER_MID at half rotation; this inverts it. The volume in
 /// dB is then linear in rotation, instead of crowding into the last half.
@@ -452,16 +456,19 @@ struct Knob {
     held: Option<i32>,
     // Consecutive polls the smoothed reading has been past the hysteresis.
     away: u32,
+    // Last ADC reading (trimmed mean), for the knob log.
+    last_raw: i32,
 }
 
 impl Knob {
     fn new(pin: i32) -> Self {
-        Self { pin, pos: None, read: false, filtered: None, held: None, away: 0 }
+        Self { pin, pos: None, read: false, filtered: None, held: None, away: 0, last_raw: -1 }
     }
 
     /// Reads the ADC; returns the (filtered) position, or None when muted.
     fn update(&mut self) -> Option<f32> {
         let raw = unsafe { bt_shim_adc_read_avg(self.pin, ADC_SAMPLES) };
+        self.last_raw = raw;
         if raw >= 0 {
             let raw = match self.filtered {
                 Some(f) => f + (raw as f32 - f) * KNOB_SMOOTHING,
@@ -469,8 +476,8 @@ impl Knob {
             };
             self.filtered = Some(raw);
             // Hold the reading until it moves KNOB_RAW_HYSTERESIS away, so ADC
-            // noise never reaches the volume (the A-taper inversion multiplies
-            // it near the bottom of the knob).
+            // noise never reaches the volume (with an A-taper pot the inversion
+            // multiplies it near the bottom of the knob).
             // A move must also last KNOB_SETTLE polls in a row, so a single
             // noise burst is ignored.
             let raw = match self.held {
@@ -502,6 +509,17 @@ impl Knob {
             }
         }
         self.pos
+    }
+
+    /// Current readings for the knob log: raw ADC, smoothed, held, position.
+    fn describe(&self) -> String {
+        let pos = self.pos.map_or("mute".to_string(), |p| format!("{:.3}", p));
+        format!(
+            "raw {} filt {:.0} held {} pos {pos}",
+            self.last_raw,
+            self.filtered.unwrap_or(-1.0),
+            self.held.unwrap_or(-1)
+        )
     }
 }
 
@@ -621,6 +639,7 @@ fn controls_loop() {
     // Measure PVDD right away so the volume ceiling is set before playback.
     let mut next_pd_poll = Instant::now();
     let mut next_current = Instant::now();
+    let mut next_knob_log = Instant::now();
     loop {
         if Instant::now() >= next_pd_poll {
             usbpd::poll();
@@ -656,6 +675,12 @@ fn controls_loop() {
             next_pd_log += PD_LOG_INTERVAL;
         }
         let (main_vol, woofer_vol) = volume_targets(master.update(), bass.update());
+        if let Some(interval) = KNOB_LOG_INTERVAL {
+            if Instant::now() >= next_knob_log {
+                info!("knobs: main {}, woofer {}", master.describe(), bass.describe());
+                next_knob_log = Instant::now() + interval;
+            }
+        }
         for (out, vol) in outs.iter_mut().zip([main_vol, woofer_vol]) {
             if let Some(out) = out {
                 out.apply(vol);
