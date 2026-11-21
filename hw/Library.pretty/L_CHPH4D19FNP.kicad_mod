@@ -1,0 +1,204 @@
+(footprint "L_CHPH4D19FNP"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "Inductor, sumida, CDPH4D19FNP 4.9mmx4.9mm")
+	(tags "inductor taiyo-yuden nr smd")
+	(property "Reference" "REF**"
+		(at 0.56 -4.04 0)
+		(layer "F.SilkS")
+		(uuid "7df688de-70f4-48a6-8a3e-37d438dc5168")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "L_CHPH4D19FNP"
+		(at 0 3.95 0)
+		(layer "F.Fab")
+		(uuid "a98e5b82-1011-406f-8ce5-dc73fba2de82")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "184b5f4e-8efb-447d-a5b9-bdf025aa6f3e")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "93f3f67f-92c2-4f74-9d24-dd5a8d134cdc")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr smd)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start -2.55 2.55)
+		(end 0.61 2.55)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "6a67f090-f582-40cf-bf50-a07ec3500017")
+	)
+	(fp_line
+		(start -0.56 -2.55)
+		(end 2.55 -2.55)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "968a461b-a1e1-4789-a310-b10670288d8c")
+	)
+	(fp_rect
+		(start -3.44 -3.47)
+		(end 3.58 3.57)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(fill no)
+		(layer "F.CrtYd")
+		(uuid "4d76ecb0-1702-4606-8309-be53bf7eba93")
+	)
+	(fp_line
+		(start -2.45 -1.65)
+		(end -1.65 -2.45)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "1414a7da-650e-48e0-b84a-137345ee21ab")
+	)
+	(fp_line
+		(start -2.45 1.65)
+		(end -2.45 -1.65)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "1fef919b-f573-4188-9f75-da5dce41caf2")
+	)
+	(fp_line
+		(start -2.45 1.65)
+		(end -1.65 2.45)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "8d812b37-5659-4e35-affa-f94448d8270a")
+	)
+	(fp_line
+		(start -1.65 -2.45)
+		(end 1.65 -2.45)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "e077827f-d861-4a26-82be-6f9a77138411")
+	)
+	(fp_line
+		(start -1.65 2.45)
+		(end 1.65 2.45)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "67f8f0de-84bd-4b8f-b661-eb5bed48aa18")
+	)
+	(fp_line
+		(start 2.45 -1.65)
+		(end 1.65 -2.45)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "89bbb6d6-23b9-42e4-b711-bc6f11e161cf")
+	)
+	(fp_line
+		(start 2.45 -1.65)
+		(end 2.45 1.65)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "10676a76-1b42-410b-a5b4-6d23efd3aba4")
+	)
+	(fp_line
+		(start 2.45 1.65)
+		(end 1.65 2.45)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "09cf9d16-670d-456e-b70b-75f2fc1acb0e")
+	)
+	(fp_text user "${REFERENCE}"
+		(at 0 0 0)
+		(layer "F.Fab")
+		(uuid "b97c1ca3-4e1c-41ce-8eed-0e11a15b366c")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" smd rect
+		(at -1.99 -2.04 45)
+		(size 1.8 2.1)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "3903ef16-d1f8-4881-a56f-2acdcadc5ebf")
+	)
+	(pad "2" smd rect
+		(at 2.175 2.125 45)
+		(size 1.8 2.1)
+		(layers "F.Cu" "F.Mask" "F.Paste")
+		(uuid "de571152-970a-42b7-9eb7-3cab96ecbb91")
+	)
+	(embedded_fonts no)
+	(model "${KICAD9_3DMODEL_DIR}/Inductor_SMD.3dshapes/L_Taiyo-Yuden_NR-50xx.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)

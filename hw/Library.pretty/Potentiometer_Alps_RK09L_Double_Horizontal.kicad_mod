@@ -1,0 +1,309 @@
+(footprint "Potentiometer_Alps_RK09L_Double_Horizontal"
+	(version 20260206)
+	(generator "pcbnew")
+	(generator_version "10.0")
+	(layer "F.Cu")
+	(descr "122002H 122002L 12B0A4S 12B0A1V Potentiometer, horizontal, Alps RK09L Double, https://tech.alpsalpine.com/prod/e/pdf/potentiometer/rotarypotentiometers/rk09l/rk09l.pdf")
+	(tags "Potentiometer horizontal Alps RK09L Double")
+	(property "Reference" "REF**"
+		(at 0 10.6 180)
+		(layer "F.SilkS")
+		(uuid "073c923f-64db-4ae2-9252-3a80de62900e")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Value" "Potentiometer_Alps_RK0971220"
+		(at -1.1 12.05 0)
+		(layer "F.Fab")
+		(uuid "34015f0a-f407-4dd0-89a4-f3a97bf674dc")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Datasheet" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "f0213793-fc4f-4e88-85c7-4b85c983ece6")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(property "Description" ""
+		(at 0 0 0)
+		(unlocked yes)
+		(layer "F.Fab")
+		(hide yes)
+		(uuid "574511ea-e36b-47ec-b8b9-0cdd439b5c69")
+		(effects
+			(font
+				(size 1.27 1.27)
+				(thickness 0.15)
+			)
+		)
+	)
+	(attr through_hole)
+	(duplicate_pad_numbers_are_jumpers no)
+	(fp_line
+		(start -5.12 8.67)
+		(end -5.12 -3.67)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "99d25572-4250-4228-8e19-c28953b6c987")
+	)
+	(fp_line
+		(start 3.759 -3.67)
+		(end -5.12 -3.67)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "4acd847e-89c7-4331-8721-cbfe7b932db6")
+	)
+	(fp_line
+		(start 3.759 8.67)
+		(end -5.12 8.67)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "5686fe06-955e-499f-bca7-f725896346d8")
+	)
+	(fp_line
+		(start 4.261 4.894)
+		(end 4.261 0.105)
+		(stroke
+			(width 0.12)
+			(type solid)
+		)
+		(layer "F.SilkS")
+		(uuid "dec3bc8d-a10e-49b4-9639-59b2e4684c72")
+	)
+	(fp_line
+		(start -20.25 -4.6)
+		(end -20.25 9.6)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "25099fac-7841-48f7-941a-dc98a482a0f1")
+	)
+	(fp_line
+		(start -20.25 9.6)
+		(end 4.75 9.6)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "c62e2333-4a1e-4855-884e-94b051aee7de")
+	)
+	(fp_line
+		(start 4.75 -4.6)
+		(end -20.25 -4.6)
+		(stroke
+			(width 0.05)
+			(type solid)
+		)
+		(layer "F.CrtYd")
+		(uuid "7fa1d803-b83f-46a8-b7a6-c8fd630fc54a")
+	)
+	(fp_line
+		(start 4.75 -4.6)
+		(end 4.75 9.6)
+		(stroke
+			(width 0.05)
+			(type default)
+		)
+		(layer "F.CrtYd")
+		(uuid "82cd9e75-2233-411e-b652-dc94f82c293a")
+	)
+	(fp_line
+		(start -20 -0.5)
+		(end -20 5.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "0aaf8ed3-b530-484b-9891-6f435293baea")
+	)
+	(fp_line
+		(start -20 5.5)
+		(end -10 5.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "9de13b7c-7822-40d4-bad2-7b1c99b6e51e")
+	)
+	(fp_line
+		(start -10 -2)
+		(end -10 7)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "eb9df830-1cf7-4d38-9f2b-9a3f108b794c")
+	)
+	(fp_line
+		(start -10 -0.5)
+		(end -20 -0.5)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "6ac5c1c1-99b3-418d-ad0e-f32555a2af81")
+	)
+	(fp_line
+		(start -10 7)
+		(end -5 7)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "ca840adc-efa2-4360-b497-1ac944c6da74")
+	)
+	(fp_line
+		(start -5 -3.55)
+		(end -5 8.55)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "ec46b33a-abc9-47aa-968a-d822ac3a6f9e")
+	)
+	(fp_line
+		(start -5 -2)
+		(end -10 -2)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "c403db53-0a39-47a6-917b-08b278f17744")
+	)
+	(fp_line
+		(start -5 8.55)
+		(end 4.14 8.55)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "58d0b9df-8a7c-460b-b7a1-623962174ff4")
+	)
+	(fp_line
+		(start 4.14 -3.55)
+		(end -5 -3.55)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "fccb9c1f-a4b9-465f-8c92-d5c562b2ac32")
+	)
+	(fp_line
+		(start 4.14 8.55)
+		(end 4.14 -3.55)
+		(stroke
+			(width 0.1)
+			(type solid)
+		)
+		(layer "F.Fab")
+		(uuid "89428c56-4e52-49d5-8aab-ad98888eeed1")
+	)
+	(fp_text user "${REFERENCE}"
+		(at -0.43 2.5 180)
+		(layer "F.Fab")
+		(uuid "e7c67013-dc02-4b2f-91e4-fd57e457c2de")
+		(effects
+			(font
+				(size 1 1)
+				(thickness 0.15)
+			)
+		)
+	)
+	(pad "1" thru_hole rect
+		(at 0 0 180)
+		(size 1.8 1.8)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "87b1f6e5-a881-405e-9f0c-f24093a39e25")
+	)
+	(pad "2" thru_hole circle
+		(at 0 2.5 180)
+		(size 1.8 1.8)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "8d49bcb6-2af4-42c6-b33e-34169156c12f")
+	)
+	(pad "3" thru_hole circle
+		(at 0 5 180)
+		(size 1.8 1.8)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "a72c7930-b3e3-408b-923e-26b7a81566e0")
+	)
+	(pad "4" thru_hole circle
+		(at 2.5 0 180)
+		(size 1.8 1.8)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "f149d0e5-9183-48bd-a4b9-f97464537a28")
+	)
+	(pad "5" thru_hole circle
+		(at 2.5 2.5 180)
+		(size 1.8 1.8)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "5f6dab80-1617-4c5a-8588-217bfe2e8d8c")
+	)
+	(pad "6" thru_hole circle
+		(at 2.5 5 180)
+		(size 1.8 1.8)
+		(drill 1)
+		(layers "*.Cu" "*.Mask")
+		(remove_unused_layers no)
+		(uuid "9a2745dd-a370-4c76-bb76-0545f71fd5c7")
+	)
+	(embedded_fonts no)
+	(model "${KICAD10_3DMODEL_DIR}/Potentiometer_THT.3dshapes/Potentiometer_Alps_RK09L_Double_Horizontal.step"
+		(offset
+			(xyz 0 0 0)
+		)
+		(scale
+			(xyz 1 1 1)
+		)
+		(rotate
+			(xyz 0 0 0)
+		)
+	)
+)
