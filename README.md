@@ -30,9 +30,13 @@ Bluetooth (A2DP/SBC) -> Bluedroid decoder -> bounded channel -> I2S writer threa
   I2S channel.
 - The I2S sample rate follows the rate negotiated by the source (16, 32,
   44.1 or 48 kHz).
-- The I2S master outputs MCLK (256 x fs), BCK and WS. The APLL is the clock
-  source, so the clocks are exact and low-jitter; if it cannot produce a rate
-  the driver falls back to the 160 MHz PLL and logs a warning.
+- The I2S master outputs MCLK, BCK and WS. The APLL is the clock source, so
+  the clocks are exact and low-jitter; if it cannot produce a rate the driver
+  falls back to the 160 MHz PLL and logs a warning. MCLK is set to 256 x fs,
+  but the original ESP32 puts the I2S module clock on GPIO0, so the pin
+  carries 512 x fs (22.58 MHz at 44.1 kHz), which the TAS5754M accepts. GPIO0
+  runs at the strongest drive, because the BOOT switch and the auto-reset
+  transistor on it round a weaker edge into a triangle.
 - The 2.1ch crossover runs on the ESP32: 4th-order Linkwitz-Riley, 150 Hz by
   default, set with `crossover_hz` (50-300 Hz) in the web UI. L/R are high-passed for the main
   amplifier; the mono sum (L+R)/2 is low-passed for the woofer. The woofer path also has
@@ -96,6 +100,35 @@ Bluetooth (A2DP/SBC) -> Bluedroid decoder -> bounded channel -> I2S writer threa
   fault by toggling `SPK_MUTE`.
 - `SPK_MUTE` is low (muted) at boot and whenever no stream is running, and
   high while audio plays. The amplifiers ramp the volume, so there are no pops.
+
+### The TAS5754M amplifier: closed loop and BTL
+
+![TAS5754M closed loop and BTL](docs/tas5754m_closed_loop_btl.png)
+
+Japanese version: [docs/tas5754m_closed_loop_btl_ja.png](docs/tas5754m_closed_loop_btl_ja.png)
+
+- **Closed loop.** Inside the TAS5754M the I2S data goes through the DSP
+  (interpolation filter, digital volume) to a DAC, which produces the voltage
+  the output should have. The PWM output of the H bridge is fed back (before
+  the external LC filter) and compared with it; a loop filter integrates the
+  difference and corrects the PWM duty cycle. The loop cancels PVDD ripple and
+  changes (high PSRR) and the distortion of the output stage (MOSFET
+  resistance, dead time).
+- **Gain.** The gain is set by the feedback ratio only, selected with the
+  `SPK_GAIN/FREQ` pin. This board's 150 kΩ / 750 kΩ divider selects
+  26.4 dBV, at which digital full scale asks for about a 29.7 V output peak.
+  The output cannot swing past about 90 % of PVDD (about 18 V at 20 V), so the
+  firmware caps the volume from the measured PVDD (-4.5 dB at 20 V).
+- **BTL (bridge-tied load).** Each channel has two half bridges, `OUT+` and
+  `OUT-`, driving the two speaker terminals in opposite phase. The voltage
+  across the speaker swings ±PVDD: twice the voltage and four times the
+  power of a single-ended output, with no DC on the speaker and so no
+  coupling capacitor. Neither speaker terminal may be connected to GND.
+- **1SPW modulation.** In the TAS5754M mostly one side switches at a time
+  (`OUT+` on positive half-waves, `OUT-` on negative ones) and at idle both
+  sides only make narrow pulses, so the idle current is low; the TAS5756M's
+  BD modulation has slightly lower distortion instead. The waveforms in the
+  diagram are simplified.
 
 The Rust side lives in [src/main.rs](src/main.rs). A small C component,
 [components/bt_shim](components/bt_shim), wraps the Bluetooth controller
@@ -172,11 +205,11 @@ web UI ("Start WPS now"). There is no access-point mode.
 
 **Web UI.** Once connected, open `http://<host name or IP address>/` (the IP
 address is in the log: `WiFi up, IP address ...`). Log in with the default
-user `admin` and password `admin`, and change them under "Account". The page
-shows the status, refreshed every 5 s (local time, uptime, WiFi address and
-RSSI, Bluetooth state, sample rate, the volume of each amplifier, amplifier
-fault, the measured USB PD voltage and current, free heap, firmware version)
-and edits:
+user `admin` and password `btpass` (set in [cfg.toml](cfg.toml)), and change
+them under "Account". The page shows the status, refreshed every 5 s (local
+time, uptime, WiFi address and RSSI, Bluetooth state, sample rate, the
+volume of each amplifier, amplifier fault, the measured USB PD voltage and
+current, free heap, firmware version) and edits:
 
 | Section | Settings | Applied |
 |---------|----------|---------|

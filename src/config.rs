@@ -70,7 +70,7 @@ settings! {
     syslog_enable = "false",
     syslog_server = "",
     web_user = "admin",
-    web_password = "admin",
+    web_password = "btpass",
     bt_name = "ESP32-Speaker",
     gain_q8 = "256",
     vol_range_db = "60",
