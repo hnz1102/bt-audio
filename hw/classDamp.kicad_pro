@@ -78,6 +78,10 @@
       ],
       "drc_exclusions": [
         [
+          "clearance|95177865|50239902|67ead078-1c4d-4069-a68b-9f8ef9daf30e|ef110d24-707b-4eda-a4d0-f1b724b1e63b",
+          ""
+        ],
+        [
           "hole_clearance|92300000|35495000|d5cbabd2-30c1-41de-9265-e435ec78129a|f30436a1-dcc7-4cf6-a583-751023f51a93",
           ""
         ],
@@ -86,7 +90,7 @@
           ""
         ],
         [
-          "lib_footprint_mismatch|95177865|50239902|f5ed4ab9-adde-4110-a3ff-33acfbba9e2b|00000000-0000-0000-0000-000000000000",
+          "shorting_items|94364016|49114016|67ead078-1c4d-4069-a68b-9f8ef9daf30e|8fa50c9b-603b-4de2-af42-466d8df8a4cb",
           ""
         ],
         [
@@ -115,6 +119,14 @@
         ],
         [
           "silk_overlap|145167219|50200000|50301cf9-c40c-43e8-8b0d-6fa0189b3ffd|f396900c-0dd7-4174-a87a-58662d793c0d",
+          ""
+        ],
+        [
+          "solder_mask_bridge|94364016|49114016|8fa50c9b-603b-4de2-af42-466d8df8a4cb|67ead078-1c4d-4069-a68b-9f8ef9daf30e",
+          ""
+        ],
+        [
+          "solder_mask_bridge|95177865|50239902|67ead078-1c4d-4069-a68b-9f8ef9daf30e|ef110d24-707b-4eda-a4d0-f1b724b1e63b",
           ""
         ]
       ],
@@ -883,7 +895,7 @@
         "uuid": "219888d5-bc2e-4713-928b-4db984a703fc"
       }
     ],
-    "used_designators": "U1-8,U102,U104-105,C1-72,C101-117,C121-124,D1-3,D101-102,#PWR1-99,#PWR101-109,#PWR112-119,#PWR121-136,#PWR401,#PWR404,L1-12,R1-32,R101-104,R106-117,#FLG1-6,#FLG102-105,J1-13,J101,FB1-2,FB101,H1-4,SW1-4,TP1-10,TP102-103,Q1-4,Q101-104,LS1,RV1-2",
+    "used_designators": "U1-8,U102,U104-105,C1-72,C101-117,C121-124,D1-3,D101-102,#PWR1-99,#PWR101-109,#PWR112-119,#PWR121-136,#PWR401,#PWR404,L1-12,R1-33,R101-104,R106-117,#FLG1-6,#FLG102-105,J1-13,J101,FB1-2,FB101,H1-4,SW1-4,TP1-10,TP102-103,Q1-4,Q101-104,LS1,RV1-2",
     "variants": []
   },
   "sheets": [

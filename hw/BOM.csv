@@ -29,7 +29,7 @@
 "R4,R8","2","150K","","Resistor_SMD:R_0603_1608Metric","13-RC0603FR-13150KLCT-ND"
 "R5,R9","2","750K","","Resistor_SMD:R_0603_1608Metric","311-750KHRCT-ND"
 "R11","1","200K","","Resistor_SMD:R_0603_1608Metric","311-200KHRCT-ND"
-"R12","1","1K","","Resistor_SMD:R_0603_1608Metric","311-1.00KHRCT-ND"
+"R12,R32,R33","3","1K","","Resistor_SMD:R_0603_1608Metric","311-1.00KHRCT-ND"
 "R13,R14,R24,R28","4","4.7K","","Resistor_SMD:R_0603_1608Metric","311-4.70KHRCT-ND"
 "R15","1","5m","","Resistor_SMD:R_2512_6332Metric_Pad1.40x3.35mm_HandSolder","4506-PEWF2512D5L00Q9CT-ND "
 "R16","1","3K09","","Resistor_SMD:R_0603_1608Metric","311-3.09KHRCT-ND"
