@@ -231,30 +231,46 @@ web UI ("Start WPS now"). There is no access-point mode.
 **Web UI.** Once connected, open `http://<host name or IP address>/` (the IP
 address is in the log: `WiFi up, IP address ...`). Log in with the default
 user `admin` and password `btpass` (set in [cfg.toml](cfg.toml)), and change
-them under "Account". The page shows the status, refreshed every 5 s (local
-time, uptime, WiFi address and RSSI, Bluetooth state, sample rate, the
-volume of each amplifier, amplifier fault, the measured USB PD voltage and
-current, free heap, firmware version) and edits:
+them under "Account". The server speaks plain HTTP, so use it on a trusted
+network only.
 
-| Section | Settings | Applied |
-|---------|----------|---------|
-| WiFi | SSID, password, WPS at boot | after reboot (WPS now: at once) |
-| Network | host name, DHCP / static IP, NTP servers | after reboot |
-| Time zone | POSIX TZ string (default `JST-9`) for syslog and the status | at once |
-| Syslog | on/off, server `host[:port]` (UDP, port 514 by default) | at once |
-| Audio | software gain, crossover frequency, woofer subsonic high-pass and bass EQ (sliders), volume knob range, Bluetooth name, USB PD maximum voltage | sliders while moving (`/api/live`, not stored until Save); range at once; name and PD voltage after reboot |
-| Account | user, password | after reboot |
+<img src="docs/webui.png" alt="Web UI" width="360" align="right">
 
-**Bluetooth devices.** The page lists the paired devices, most recently
-connected first, with their name, address and whether they are connected.
-"Remove" forgets a device (it is disconnected first). "Pairing mode (3 min)"
-makes the speaker discoverable so a new device can pair; a connected device
-is disconnected for it, since the speaker cannot be found while connected.
+The page has these sections, from the top (the screenshot shows sample
+values):
 
-The buttons "Reboot" and "Factory reset" (erases the settings, not the
-paired devices) are at the bottom. The server speaks plain HTTP, so use it on a trusted network only. The
-passwords are never sent back to the browser; leave a password field empty to
-keep it.
+- **Status**, refreshed every 5 s: local time, uptime, WiFi address / SSID /
+  RSSI, Bluetooth state (not connected / connected / playing), sample rate,
+  the volume of each amplifier, amplifier fault, the measured USB PD voltage
+  and current with the requested voltage, free heap (and its minimum since
+  boot), firmware version.
+- **Bluetooth devices**: the paired devices, most recently connected first,
+  with name, address, `connected` and `last` (tried first at boot).
+  "Remove" forgets a device (it is disconnected first). "Pairing mode
+  (3 min)" makes the speaker discoverable so a new device can pair; a
+  connected device is disconnected for it, since the speaker cannot be found
+  while connected. The line above the button shows whether the speaker is
+  discoverable and for how long.
+- **Audio**: software gain, crossover frequency, woofer subsonic high-pass,
+  bass EQ boost and frequency. The sliders apply while moving
+  (`/api/live`) and are kept after a reboot only when saved. Also the volume
+  knob range (applied at once), the Bluetooth name and the USB PD maximum
+  voltage (both after a reboot).
+- **WiFi**: SSID, password, WPS at boot when no SSID is set (after a reboot);
+  "Start WPS now" starts a WPS push-button handshake at once.
+- **Network**: host name (DHCP and syslog), DHCP or static IP address,
+  subnet mask, gateway, DNS, four NTP servers (after a reboot), and the time
+  zone as a POSIX TZ string (default `JST-9`, applied at once).
+- **Syslog**: forwarding on/off, server `host[:port]` (UDP, port 514 by
+  default) and application name (applied at once).
+- **Account**: web UI user and password (after a reboot).
+
+"Save" stores every section. "Reboot" restarts the ESP32; "Factory reset"
+erases the settings and the learned knob stops (not the paired devices) and
+reboots. The passwords are never sent back to the browser; leave a password
+field empty to keep it.
+
+<br clear="right">
 
 **Syslog.** When enabled, every log record is also sent to the syslog server
 as an RFC 5424 message over UDP (facility user, app name `bt-audio`, host name
