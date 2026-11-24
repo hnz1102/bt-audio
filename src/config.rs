@@ -133,6 +133,16 @@ impl Config {
     }
 }
 
+/// Reads a value kept outside the settings (e.g. a learned knob floor).
+pub fn load_value(key: &str) -> Option<String> {
+    nvs_get(key)
+}
+
+/// Stores a value kept outside the settings; erased by a factory reset.
+pub fn save_value(key: &str, value: &str) -> bool {
+    nvs_set(&[(key, value)])
+}
+
 /// Erases every stored setting; the defaults apply from the next boot.
 pub fn erase() -> bool {
     let Ok(ns) = CString::new(NVS_NS) else { return false };

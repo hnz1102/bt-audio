@@ -132,10 +132,24 @@ const AMP_RETRY: Duration = Duration::from_secs(5);
 // Volume knobs are 10k B-taper (linear) pots: fraction of the full voltage at
 // half rotation (0.5 for a linear B pot, 0.15 for the common 15 % A curve).
 const POT_TAPER_MID: f32 = 0.5;
-// Readings below ADC_MIN mute; a muted knob unmutes only above ADC_UNMUTE, so
-// noise around the threshold cannot switch the sound on and off. The ESP32
-// ADC reads ~0 below about 0.1 V, which with a B-taper pot is the first
-// ~3 % of the rotation (~20 % with an A-taper pot). The ADC saturates near ADC_MAX.
+// Each pot has 1 kOhm between its low end and GND, so its counter-clockwise
+// stop reads about 0.3 V (0.25-0.37 V with the pot's tolerance), clear of the
+// ESP32 ADC's dead zone below ~0.15 V. That stop reading (the knob's floor) is
+// learned: the lowest reading seen, kept in NVS. Readings below floor +
+// KNOB_MUTE_MARGIN mute; a muted knob unmutes only above floor +
+// KNOB_UNMUTE_MARGIN, so noise around the threshold cannot switch the sound
+// on and off. Until the knob has been at its stop the floor is
+// KNOB_FLOOR_DEFAULT, above the expected stop reading. The ADC saturates near
+// ADC_MAX.
+const KNOB_FLOOR_DEFAULT: i32 = 500;
+// Readings below this are not learned as the floor: with the 1 kOhm fitted
+// the stop never reads this low, so it can only be a glitch (or a pot
+// without the resistor, which then still mutes below KNOB_FLOOR_MIN + margin).
+const KNOB_FLOOR_MIN: i32 = 100;
+const KNOB_MUTE_MARGIN: i32 = 20;
+const KNOB_UNMUTE_MARGIN: i32 = 45;
+// A learned floor is written to NVS once it is this far below the stored one.
+const KNOB_FLOOR_SAVE_STEP: i32 = 4;
 // Knob movement (fraction of the rotation) needed before the volume follows.
 const KNOB_HYSTERESIS: f32 = 0.01;
 // A volume register is rewritten only when the target moves this many 0.5 dB
@@ -147,7 +161,7 @@ const KNOB_SMOOTHING: f32 = 0.15;
 // turned.
 const KNOB_RAW_HYSTERESIS: f32 = 16.0;
 const KNOB_SETTLE: u32 = 2;
-// While tuning ADC_MIN / ADC_UNMUTE: log the knob readings this often (None
+// While checking the knob floor: log the knob readings this often (None
 // turns the log off).
 const KNOB_LOG_INTERVAL: Option<Duration> = None;
 // Bass knob: woofer level relative to the master volume, +-12 dB around
@@ -160,8 +174,6 @@ const WOOFER_BOOST_MAX_STEPS: i32 = 12;
 // by the controls thread and ramped by the audio path. 0 = muted.
 static MAIN_VOL_GAIN: AtomicU32 = AtomicU32::new(0);
 static WOOFER_VOL_GAIN: AtomicU32 = AtomicU32::new(0);
-const ADC_MIN: i32 = 10;
-const ADC_UNMUTE: i32 = 25;
 const ADC_MAX: i32 = 4000;
 
 // TAS5754M registers (page 0). Volume is 0.5 dB per step: 0x30 = 0 dB.
@@ -401,10 +413,10 @@ fn knob_rotation(raw: i32) -> f32 {
     (1.0 + v * (a - 1.0)).ln() / a.ln()
 }
 
-/// Knob position 0..1, counted from the unmute point (between ADC_MIN and
-/// ADC_UNMUTE it stays 0).
-fn knob_position(raw: i32) -> f32 {
-    let low = knob_rotation(ADC_UNMUTE);
+/// Knob position 0..1, counted from the unmute point `unmute` (between the
+/// mute and unmute points it stays 0).
+fn knob_position(raw: i32, unmute: i32) -> f32 {
+    let low = knob_rotation(unmute);
     ((knob_rotation(raw) - low) / (1.0 - low)).clamp(0.0, 1.0)
 }
 
@@ -439,11 +451,35 @@ struct Knob {
     away: u32,
     // Last ADC reading (trimmed mean), for the knob log.
     last_raw: i32,
+    // Reading at the counter-clockwise stop (learned), and the value in NVS.
+    floor: i32,
+    saved_floor: i32,
 }
 
 impl Knob {
     fn new(pin: i32) -> Self {
-        Self { pin, pos: None, read: false, filtered: None, held: None, away: 0, last_raw: -1 }
+        let floor = config::load_value(&Self::floor_key(pin))
+            .and_then(|v| v.parse::<i32>().ok())
+            .map_or(KNOB_FLOOR_DEFAULT, |f| f.clamp(KNOB_FLOOR_MIN, KNOB_FLOOR_DEFAULT));
+        info!("knob GPIO{pin}: floor {floor}");
+        Self { pin, pos: None, read: false, filtered: None, held: None, away: 0, last_raw: -1, floor, saved_floor: floor }
+    }
+
+    fn floor_key(pin: i32) -> String {
+        format!("knob_floor{pin}")
+    }
+
+    /// Lowers the floor to a reading below it; stores it when it moved enough.
+    fn learn_floor(&mut self, held: i32) {
+        if held < self.floor {
+            self.floor = held.max(KNOB_FLOOR_MIN);
+        }
+        if self.floor <= self.saved_floor - KNOB_FLOOR_SAVE_STEP {
+            if config::save_value(&Self::floor_key(self.pin), &self.floor.to_string()) {
+                info!("knob GPIO{}: floor {} stored", self.pin, self.floor);
+            }
+            self.saved_floor = self.floor;
+        }
     }
 
     /// Reads the ADC; returns the (filtered) position, or None when muted.
@@ -461,8 +497,16 @@ impl Knob {
             // multiplies it near the bottom of the knob).
             // A move must also last KNOB_SETTLE polls in a row, so a single
             // noise burst is ignored.
+            // A move across the mute or unmute point always counts, however
+            // small: the hysteresis is close to the gap between them, so a
+            // held value just above the unmute point could otherwise keep the
+            // knob from muting at its stop.
+            let (mute_at, unmute_at) = (self.floor + KNOB_MUTE_MARGIN, self.floor + KNOB_UNMUTE_MARGIN);
+            let crosses = |h: i32| {
+                [mute_at, unmute_at].iter().any(|&t| (raw < t as f32) != (h < t))
+            };
             let raw = match self.held {
-                Some(h) if (raw - h as f32).abs() < KNOB_RAW_HYSTERESIS => {
+                Some(h) if (raw - h as f32).abs() < KNOB_RAW_HYSTERESIS && !crosses(h) => {
                     self.away = 0;
                     h
                 }
@@ -476,9 +520,11 @@ impl Knob {
                 }
             };
             self.held = Some(raw);
-            // Mute below ADC_MIN; once muted, stay muted up to ADC_UNMUTE.
-            let muted = raw < ADC_MIN || (self.read && self.pos.is_none() && raw < ADC_UNMUTE);
-            let pos = (!muted).then(|| knob_position(raw));
+            self.learn_floor(raw);
+            let (mute_at, unmute_at) = (self.floor + KNOB_MUTE_MARGIN, self.floor + KNOB_UNMUTE_MARGIN);
+            // Mute near the stop; once muted, stay muted up to the unmute point.
+            let muted = raw < mute_at || (self.read && self.pos.is_none() && raw < unmute_at);
+            let pos = (!muted).then(|| knob_position(raw, unmute_at));
             let moved = match (pos, self.pos) {
                 (Some(p), Some(l)) => (p - l).abs() >= KNOB_HYSTERESIS || (p == 0.0 || p == 1.0) && p != l,
                 (None, None) => false,
@@ -496,10 +542,11 @@ impl Knob {
     fn describe(&self) -> String {
         let pos = self.pos.map_or("mute".to_string(), |p| format!("{:.3}", p));
         format!(
-            "raw {} filt {:.0} held {} pos {pos}",
+            "raw {} filt {:.0} held {} floor {} pos {pos}",
             self.last_raw,
             self.filtered.unwrap_or(-1.0),
-            self.held.unwrap_or(-1)
+            self.held.unwrap_or(-1),
+            self.floor
         )
     }
 }

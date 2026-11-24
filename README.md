@@ -194,9 +194,15 @@ The pins are constants at the top of [src/main.rs](src/main.rs). Details:
 - **MCLK on GPIO0:** the ESP32 can output MCLK only on GPIO0, 1 or 3. GPIO0 is
   a boot strapping pin: power the amplifiers' DVDD from the same 3.3 V rail as
   the ESP32 so that their MCLK input never holds GPIO0 low at boot.
-- **Potentiometers:** connect the ends to 3.3 V and GND, the wiper to the GPIO
-  and a 0.1 µF capacitor from the wiper to GND. Both pins are on ADC1, which
-  works with Bluetooth active.
+- **Potentiometers:** connect one end to 3.3 V and the other through a 1 kΩ
+  resistor to GND, the wiper to the GPIO and a 0.1 µF capacitor from the
+  wiper to GND. Both pins are on ADC1, which works with Bluetooth active. The
+  resistor lifts the counter-clockwise stop to about 0.3 V, above the ESP32
+  ADC's dead zone (below ~0.15 V), so the knob has no slack at that end. The
+  firmware learns the stop reading (the lowest reading seen, kept in NVS as
+  `knob_floor33` / `knob_floor35`) and mutes within 20 counts of it; until
+  the knob has been turned to its stop once, it mutes below 520. A factory
+  reset erases the learned value.
 - **Clock signals:** a 33 Ω series resistor near the ESP32 on each of BCK, WS,
   MCLK and DOUT reduces ringing and EMI.
 - Leave the amplifiers' `GPIO0/1/2` unconnected. The output filters, PVDD
