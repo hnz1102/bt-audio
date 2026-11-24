@@ -5,6 +5,8 @@ audio from a phone or PC over Bluetooth Classic and plays it through two
 TAS5754M class-D amplifiers (main L/R and woofer) fed over I2S. The volume of
 each amplifier is set with a potentiometer.
 
+![ESP32-Speaker](docs/front.jpg)
+
 ![Block diagram](docs/block_diagram.png)
 
 The diagram also shows the planned FPGA DSP stage (crossover and filters)
@@ -368,8 +370,13 @@ table, and 16 MB flash.
 
 ## License
 
-MIT License. Copyright (c) 2026 Hiroshi Nakajima.
+**Software** (firmware, [src/](src/), [components/](components/)): MIT License.
+Copyright (c) 2026 Hiroshi Nakajima. The license is declared in the header of
+[src/main.rs](src/main.rs) (`SPDX-License-Identifier: MIT`) and in
+[Cargo.toml](Cargo.toml) (`license = "MIT"`).
 
-The license is declared in the header of [src/main.rs](src/main.rs)
-(`SPDX-License-Identifier: MIT`) and in [Cargo.toml](Cargo.toml)
-(`license = "MIT"`). 
+**Hardware** (schematic, PCB layout, BOM and production files in [hw/](hw/)):
+[Creative Commons Attribution-ShareAlike 4.0 International](https://creativecommons.org/licenses/by-sa/4.0/)
+(CC BY-SA 4.0). Copyright (c) 2026 Hiroshi Nakajima. You may copy, modify,
+manufacture and sell boards made from these files, provided you credit the
+author and release modified design files under the same license.
